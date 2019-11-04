@@ -1,18 +1,13 @@
-#define NUM_LEDS 144
 #include <FastLED.h>
 #include <pthread.h>
 #include "BluetoothSerial.h"
 #include "ArduinoJson.h"
+#include "scenario.h"
 #define PIN 15
 
-
-#define STAIRS_COUNT 8
-pthread_t threads[STAIRS_COUNT];
-
 pthread_t bluetoothThread;
-#define LED_PER_STAIR_COUNT 18
+extern CRGB leds[NUM_LEDS];
 
-CRGB leds[NUM_LEDS];
 byte counter;
 void firstTryanim(int delayBS);
 void secondTryAnim(int delayBS);
@@ -21,6 +16,12 @@ void *showStairOnThread(void *threadid);
 void *bluetoothLoop(void *threadid);
 void threadTryAnimation(int delayBS);
 void setRGB(int r, int g ,int b,int br);
+void parseAndRun(DynamicJsonDocument docq);
+String cutFromInputAndGetLastMEssage(String input);
+
+extern pthread_t scenarioThread;
+
+ 
 std::vector<String> static split(String str,String sep);
 BluetoothSerial ESP_BT;
 
@@ -35,6 +36,7 @@ void setup() {
  	 	 Serial.println("Bluetooth Device is Ready to Pair");
  	 	 
         pthread_create(&bluetoothThread, NULL, bluetoothLoop, 0);
+        pthread_create(&scenarioThread, NULL, scenarioThreadFunc, 0);
 
  	 	
 }
@@ -52,7 +54,54 @@ void * bluetoothLoop(void *threadid){
           String input = ESP_BT.readString (); // Читаем, что мы получаем 
           Serial.print ("Received:"); Serial.println (input);
           
-          std::vector<String> arr;
+          
+          String lastinput = cutFromInputAndGetLastMEssage(input);
+
+          StaticJsonDocument<500> docq;
+          DeserializationError error = deserializeJson(docq, lastinput);
+
+            // Test if parsing succeeds.
+          if (error) {
+              Serial.print(F("deserializeJson() failed: "));
+              Serial.println(error.c_str());
+              continue;
+          }
+          parseAndRun(docq);
+          }
+      delay(10);
+    }
+}
+
+void parseAndRun(DynamicJsonDocument docq){
+    
+    Scenario scenario;
+
+    String scenarioName = docq["scenario"];
+    scenario.name = scenarioName;
+
+    int delayChairs = docq["delayChairs"];    
+    scenario.delayChairs = delayChairs;
+
+    int delayPerChair = docq["delayPerChair"]; 
+    scenario.delayPerChair = delayPerChair;
+    int delayAfterAnim = docq["delayAfterAnimation"]; 
+    scenario.delayAfter = delayAfterAnim;
+
+    int red = docq["red"]; 
+    scenario.red = red;
+    int green = docq["green"]; 
+    scenario.green = green;
+      int blue = docq["blue"]; 
+    scenario.blue = blue;
+      int brightness = docq["brightness"]; 
+    scenario.brightness = brightness;
+    
+    runScenario(scenario,true);//TODO от какого из датчиков пришел сигнал
+
+}
+
+String cutFromInputAndGetLastMEssage(String input){
+std::vector<String> arr;
           arr = split(input,"\n");
 
           Serial.print("arr capacity =");
@@ -68,37 +117,8 @@ void * bluetoothLoop(void *threadid){
 
           Serial.print("arr[last]");
           Serial.println(arr[arr.size()-1]);
-          String lastinput = arr[arr.size()-1];
-
-          StaticJsonDocument<200> docq;
-          DeserializationError error = deserializeJson(docq, lastinput);
-
-            // Test if parsing succeeds.
-          if (error) {
-              Serial.print(F("deserializeJson() failed: "));
-              Serial.println(error.c_str());
-              continue;
-          }
-
-          int r = docq["red"];
-          int g = docq["green"];
-          int b = docq["blue"];
-          int br = docq["brightness"];
-
-          Serial.print("r = ");
-          Serial.print(r);
-          Serial.print(" g = ");
-          Serial.print(g);
-          Serial.print(" b = ");
-          Serial.print(b);
-          Serial.print(" br = ");
-          Serial.println(br);
-          setRGB(r,g,b,br);
-          }
-      delay(1);
-    }
+          return arr[arr.size()-1];
 }
-
 void setRGB(int r, int g ,int b,int br){
   for (int i = 0; i < NUM_LEDS; i++){
     leds[i].setRGB(r,g,b);
@@ -115,29 +135,7 @@ void setBlack(){
    FastLED.show();
 }
 
-void threadTryAnimation(int delayBS){
-  for (int i = 0; i < STAIRS_COUNT ; i++){
-    pthread_create(&threads[i], NULL, showStairOnThread, (void *)i);
-    delay(delayBS);
-  }
-  delay(5000); // костыль ебаны, сделать condition wait
-}
 
-void *showStairOnThread(void *threadid) {
-  int nstair = (int)threadid;
-  int startLed = nstair*LED_PER_STAIR_COUNT;
-        for (int led = startLed; led <= (startLed + LED_PER_STAIR_COUNT) ;led ++){
-            leds[led] .setRGB( 30, 0, 255);
-            FastLED.show();
-            Serial.print("Thread = ");
-            Serial.print((int) threadid);
-            Serial.print(" led num = ");
-            Serial.println((int)led);
-            delay(50);
-        }
-
-    //Serial.println((int)threadid);
-}
 
 
 void firstTryAnim(int delayBS){
